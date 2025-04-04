@@ -1,121 +1,102 @@
-import sys
-import time
-
-import asyncio
-from agents.run import Runner
-
-from dotenv import load_dotenv
-
-from create_agent import create_agent
-
-"""
-AgentKit Chatbot Interface
-
-This file provides a command-line interface for interacting with your AgentKit-powered AI agent.
-It supports two modes of operation:
-
-1. Chat Mode:
-   - Interactive conversations with the agent
-   - Direct user input and agent responses
-
-2. Autonomous Mode:
-   - Agent operates independently
-   - Performs periodic blockchain interactions
-   - Useful for automated tasks or monitoring
-
-Use this as a starting point for building your own agent interface or integrate
-the agent into your existing applications.
-
-# Want to contribute?
-Join us in shaping AgentKit! Check out the contribution guide:  
-- https://github.com/coinbase/agentkit/blob/main/CONTRIBUTING.md
-- https://discord.gg/CDP
-"""
-from dotenv import load_dotenv
 import os
+import json
+from fastapi import FastAPI
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from web3 import Web3
+from agents.run import Runner
+from create_agent import create_agent
+import logging as L
+load_dotenv()
 
-load_dotenv()  # This loads variables from a .env file into os.environ
+# === CONFIG ===
+RPC_URL = os.getenv("RPC_URL")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
+ABI_PATH = os.getenv("ABI_PATH", "contract/CompanyShipmentTracker.json")
 
-# Optional: manually set it again, but usually not needed
-os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY')
+# === WEB3 ===
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
+with open(ABI_PATH) as f:
+    abi = json.load(f)["abi"]
+contract = w3.eth.contract(address=Web3.to_checksum_address(CONTRACT_ADDRESS), abi=abi)
 
-# Autonomous Mode
-async def run_autonomous_mode(agent, config, interval=10):
-    """Run the agent autonomously with specified intervals."""
-    print("Starting autonomous mode...")
-    while True:
-        try:
-            thought = (
-                "Be creative and do something interesting on the blockchain. "
-                "Choose an action or set of actions and execute it that highlights your abilities."
+# === AGENT ===
+agent_executor, config = create_agent()
+
+# === FASTAPI ===
+app = FastAPI()
+
+class QueryRequest(BaseModel):
+    prompt: str
+    name: str = None
+
+@app.get("/")
+def root():
+    return {"message": "Shipping Quality Assistant API"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.post("/query")
+async def query_intent(req: QueryRequest):
+    user_prompt = req.prompt.strip()
+
+    # === Step 1: Detect user intent ===
+    thought = (
+        "Your name is Vector! You are a helpful assistant for a shipping quality company.\n"
+        "Decide the user's intent. Options:\n"
+        "- advice\n"
+        "- find_shipment_company\n"
+        "\n"
+        f"USER PROMPT: {user_prompt}"
+    )
+
+    try:
+        result = await Runner.run(agent_executor, thought)
+        L.info(result)
+
+        intent = 'find_shipment_company' if 'find_shipment_company' in result.final_output.lower() else 'advice'
+        L.info(f"Detected intent: {intent}")
+
+        if intent == "find_shipment_company":
+            companies = contract.functions.getAllCompanies().call()
+            if not companies:
+                return {"reply": "Sorry, no company records found on-chain yet."}
+
+            top = sorted(companies, key=lambda c: (c[2], c[3]), reverse=True)[:3]
+            top_companies = [
+                {
+                    "name": c[0],
+                    "successRate": round(c[2] , 2),
+                    "feedbackScore": round(c[3], 2),
+                    "deliveryScore": c[4],
+                    "deliveries": c[1]
+                }
+                for c in top
+            ]
+            print(top_companies)
+            L.info(
+                f"Top 3 companies: {json.dumps(top_companies, indent=2)}"
             )
 
-            # Run agent in autonomous mode
-            output = await Runner.run(agent, thought)
-            print(output.final_output)
-            print("-------------------")
+            re_thought = (
+                "You're a shipping assistant helping a user find a reliable shipping company.\n"
+                f"Based on this data: {json.dumps(top_companies, indent=2)}\n"
+                "Generate a friendly, human-readable recommendation. dont use h tags man use bold"
+            )
+            L.info(re_thought)
+            final = await Runner.run(agent_executor, re_thought)
+            return {"reply": final.final_output}
+        else:
+            thought = (
+                "Your name is Vector! You are a helpful assistant for a shipping quality company.\n"
+                "Give a short, friendly advice to the user.\n"
+                f"USER QUERY: {user_prompt}"
+            )
+            final = await Runner.run(agent_executor, thought)
+            return {"reply": final.final_output}
 
-            # Wait before the next action
-            await asyncio.sleep(interval)
-
-        except KeyboardInterrupt:
-            print("Goodbye Agent!")
-            sys.exit(0)
-
-# Chat Mode
-async def run_chat_mode(agent, config):
-    """Run the agent interactively based on user input."""
-    print("Starting chat mode... Type 'exit' to end.")
-    while True:
-        try:
-            user_input = input("\nPrompt: ")
-            if user_input.lower() == "exit":
-                break
-
-            # Run agent with the user's input in chat mode
-            output = await Runner.run(agent, user_input)
-            print(output.final_output)
-            print("-------------------")
-
-        except KeyboardInterrupt:
-            print("Goodbye Agent!")
-            sys.exit(0)
-
-
-
-# Mode Selection
-def choose_mode():
-    """Choose whether to run in autonomous or chat mode based on user input."""
-    while True:
-        print("\nAvailable modes:")
-        print("1. chat    - Interactive chat mode")
-        print("2. auto    - Autonomous action mode")
-
-        choice = input("\nChoose a mode (enter number or name): ").lower().strip()
-        if choice in ["1", "chat"]:
-            return "chat"
-        elif choice in ["2", "auto"]:
-            return "auto"
-        print("Invalid choice. Please try again.")
-
-
-async def main():
-
-    """Start the chatbot agent."""
-    agent_executor, config = create_agent()
-
-    mode = choose_mode()
-    if mode == "chat":
-        
-        await run_chat_mode(agent=agent_executor, config=config)
-        
-    elif mode == "auto":
-        
-        await run_autonomous_mode(agent=agent_executor, config=config)
-        
-
-if __name__ == "__main__":
-    print("Starting Agent...")
-    
-    asyncio.run(main())
-    
+    except Exception as e:
+        L.exception("Error in query_intent")
+        return {"reply": "Sorry, something went wrong while processing your request."}
