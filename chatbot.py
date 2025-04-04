@@ -83,7 +83,7 @@ async def query_intent(req: QueryRequest):
             re_thought = (
                 "You're a shipping assistant helping a user find a reliable shipping company.\n"
                 f"Based on this data: {json.dumps(top_companies, indent=2)}\n"
-                "Generate a friendly, human-readable recommendation. dont use h tags man use bold"
+                "Generate a friendly, human-readable recommendation. NEVER use h tags! You CAN use bold"
             )
             L.info(re_thought)
             final = await Runner.run(agent_executor, re_thought)
