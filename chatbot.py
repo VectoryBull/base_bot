@@ -170,6 +170,7 @@ async def query_intent(req: QueryRequest):
             final = await Runner.run(agent_executor, thought)
             return {"reply": final.final_output}
 
+
     except Exception as e:
         L.exception("Error in query_intent")
         return {"reply": "Sorry, something went wrong while processing your request."}
