@@ -12,6 +12,7 @@ import logging as L
 load_dotenv()
 from cdp import *
 
+
 # === CONFIG ===
 RPC_URL = os.getenv("RPC_URL")
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
