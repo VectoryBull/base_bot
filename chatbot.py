@@ -5,9 +5,12 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from web3 import Web3
 from agents.run import Runner
+
+from contract.query_logistics_data import query_logistics_data
 from create_agent import create_agent
 import logging as L
 load_dotenv()
+from cdp import *
 
 # === CONFIG ===
 RPC_URL = os.getenv("RPC_URL")
@@ -48,6 +51,7 @@ async def query_intent(req: QueryRequest):
         "Decide the user's intent. Options:\n"
         "- advice\n"
         "- find_shipment_company\n"
+        "- shipment_data\n"
         "\n"
         f"USER PROMPT: {user_prompt}"
     )
@@ -55,8 +59,14 @@ async def query_intent(req: QueryRequest):
     try:
         result = await Runner.run(agent_executor, thought)
         L.info(result)
-
-        intent = 'find_shipment_company' if 'find_shipment_company' in result.final_output.lower() else 'advice'
+        intent_output = result.final_output.lower()
+        match True:
+            case _ if "find_shipment_company" in intent_output:
+                intent = "find_shipment_company"
+            case _ if "shipment_data" in intent_output:
+                intent = "shipment_data"
+            case _:
+                intent = "advice"
         L.info(f"Detected intent: {intent}")
 
         if intent == "find_shipment_company":
@@ -87,6 +97,18 @@ async def query_intent(req: QueryRequest):
             )
             L.info(re_thought)
             final = await Runner.run(agent_executor, re_thought)
+            return {"reply": final.final_output}
+        elif intent == "shipment_data":
+            data = query_logistics_data()
+            thought = (
+                "Your name is Vector! You are a helpful assistant for a shipping quality company.\n"
+                "Generate a friendly, human-readable response for the user.\n"
+                "You have a histogram of which user is interested answer his question clear and shortly like max 2-3 sentences.\n"
+                f"USER QUERY: {user_prompt} \n"
+                f"basen on the data \n"
+                f"DATA: {data}"
+            )
+            final = await Runner.run(agent_executor, thought)
             return {"reply": final.final_output}
         else:
             thought = (
