@@ -11,6 +11,7 @@ from create_agent import create_agent
 import logging as L
 load_dotenv()
 from cdp import *
+from fastapi.middleware.cors import CORSMiddleware
 
 
 # === CONFIG ===
@@ -29,7 +30,13 @@ agent_executor, config = create_agent()
 
 # === FASTAPI ===
 app = FastAPI()
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 class QueryRequest(BaseModel):
     prompt: str
     name: str = None
