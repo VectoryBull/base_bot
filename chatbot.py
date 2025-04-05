@@ -56,18 +56,26 @@ async def query_intent(req: QueryRequest):
     # === Step 1: Detect user intent ===
     thought = (
         "Your name is Vector! You are a helpful assistant for a shipping quality company.\n"
+        "You must spit them exactly as in the enum!\n"
         "Decide the user's intent. Options:\n"
         "- advice\n"
         "- find_shipment_company\n"
         "- shipment_data\n"
         "\n"
         f"USER PROMPT: {user_prompt}"
+        f""
+        f""
+        f"\n\n\n\n"
+        f"example shipment_data for vibrations temperature and humiodity - shipment_data\n"
+        f"I need info about shipment company - find_shipment_company\n"
+        f"Else advice :) \n"
     )
 
     try:
         result = await Runner.run(agent_executor, thought)
         L.info(result)
         intent_output = result.final_output.lower()
+        L.info(f"Intent output: {intent_output}")
         match True:
             case _ if "find_shipment_company" in intent_output:
                 intent = "find_shipment_company"
@@ -116,8 +124,43 @@ async def query_intent(req: QueryRequest):
                 f"basen on the data \n"
                 f"DATA: {data}"
             )
-            final = await Runner.run(agent_executor, thought)
-            return {"reply": final.final_output}
+
+            response = await Runner.run(agent_executor, thought)
+
+
+            thought = (
+                "Based on the customer query in what data is he interested in "
+                "may be more than one "
+                "\n"
+                "-vibrations"
+                "-temperature"
+                "-humidity"
+            )
+            # all_data.append({
+            #     "shipmentId": shipment_hex,
+            #     "records": parsed
+            # })
+
+
+
+            _plot_data =[]
+            for i in data:
+                _plot_data.extend(i['records'])
+            with open('data2.json', 'w') as f:
+                f.write(json.dumps(_plot_data, indent=4))
+            classifier = await Runner.run(agent_executor, thought)
+            from collections import defaultdict
+
+            plot_data = defaultdict(list)
+            L.info(classifier.final_output)
+            for metric in ['vibrations', 'temperature', 'humidity']:
+                if metric in classifier.final_output.lower():
+                    for x in _plot_data:
+                        if metric in x:  # safe check
+                            plot_data[metric].append([x['timestamp'], x[metric]])
+            with open('response.json', 'w') as f:
+                f.write(json.dumps({"reply": response.final_output, "chart_data": plot_data}, indent=4))
+            return {"reply": response.final_output, "chart_data": plot_data}
         else:
             thought = (
                 "Your name is Vector! You are a helpful assistant for a shipping quality company.\n"
